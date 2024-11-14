@@ -48,7 +48,7 @@ int main()
 
         // Number of Layers
 
-    NUM_Tech = 6;
+    NUM_Tech = 1;
 
     //   Number of points in grid for each layer
     N_Mid = 1000;// in self-sonst
