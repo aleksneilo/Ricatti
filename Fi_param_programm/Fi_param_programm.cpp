@@ -79,7 +79,7 @@ int main()
     std::cout << n << " concurrent threads are supported.\n";
 
     T = 0.5;
-    //   Iteration constants
+    //   Iteration constants11
     epsG = 1e-9;  // accuracy of normal Green function G iteration loop
     epsDel = 5e-6; // accuracy of pair potential \Delta iteration loop
     alpha = 0.59; // parameter in Delta loop. Just for increase of convergence
