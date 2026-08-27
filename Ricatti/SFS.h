@@ -20,10 +20,16 @@ extern int  MODE;  // regime of boundary conditions: 0 - Free Boundary, 1 - Fixe
  void Prog( complex<double> *Fi, complex<double> *G, complex<double> *Del, complex<double> w, double* q, double I);
  void Gcalc( complex<double> *G, double *dGmax, complex<double> *Fi1, complex<double> *Fi2, complex<double> *Del, complex<double> w, double* q);
  void GcalcDOS(complex<double> *G, double *dGmax, complex<double> *Fi1, complex<double> *Fi2, complex<double> *Del, complex<double> w);
+ void getABC_ricatti(complex<double>* a, complex<double>* b, complex<double>* c, complex<double>* d, int iN, complex<double>* gamma, complex<double>* gamma_tilde, complex<double>* Del, complex<double> w, double* q, double I, bool tilde_equation);
+ void Prog_ricatti(complex<double>* gamma, complex<double>* gamma_tilde, complex<double>* G, complex<double>* Del, complex<double> w, double* q, double I);
+ void Prog_ricatti(complex<double>* gamma, complex<double>* gamma_tilde, complex<double>* G, complex<double>* Del, complex<double> w, double* q, double I, bool use_initial_guess);
+ void Gcalc_ricatti(complex<double>* G, double* dGmax, complex<double>* gamma, complex<double>* gamma_tilde);
+ void SelfConsParal_ricatti(complex<double>* G, complex<double>* Del, int Initial, double* q, double I);
+ void Scalc_ricatti(complex<double>* Del, complex<double>** S1, int w_in, int w_fin, double* q, double I);
  double E_IS_calc(double *Is, complex<double> *G,complex<double> *Del, double* q, double I);
  void DOS(double E, complex<double> *G, complex<double> *G1, complex<double> *Fi, complex<double> *Del, double* q, double I);
   void SelfConsParal(complex<double> *G, complex<double> *Del, int Initial, double* q, double I);
-void Scalc(complex<double> *Del, complex<double> **S1, int &w_in, int &w_fin, double* q, double I);
+  void Scalc(complex<double>* Del, complex<double>** S1, int w_in, int w_fin, double* q, double I);// void Scalc(complex<double>* Del, complex<double>** S1, int& w_in, int& w_fin, double* q, double I);
  int Layer(int iN);
  complex<double> get_wm(int iN, complex<double> w);
  double KinInd( complex<double> *G, complex<double> *Del, double* q, double I);

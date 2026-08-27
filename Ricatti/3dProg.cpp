@@ -99,7 +99,7 @@ void getABC(complex<double> *a, complex<double> *b, complex<double> *c, complex<
              //}//*/
          }
      //}
-         if (iN == (N_S+ N_F + N_S1 + N_F1 + N_S2 - 1))//
+         /*/if (iN == (N_S + N_F + N_S1 + N_F1 + N_S2 - 1))//
          //if(N - N_N - 1)
          {
              *a = -R0AN;

@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{2522e248-0ae2-4284-8d21-dd33365f10d6}</ProjectGuid>
+    <ProjectGuid>{4E946326-DEA0-4603-B292-17A3FA9A1B11}</ProjectGuid>
     <RootNamespace>Fiparamprogramm</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
@@ -128,13 +128,15 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="3dProg.cpp" />
+    <ClCompile Include="3dProg_ricatti.cpp" />
     <ClCompile Include="DOS.cpp" />
-    <ClCompile Include="Fi_param_programm.cpp" />
+    <ClCompile Include="main.cpp" />
     <ClCompile Include="Geometry.cpp" />
     <ClCompile Include="Impedance.cpp" />
     <ClCompile Include="IS.cpp" />
     <ClCompile Include="KinInd.cpp" />
     <ClCompile Include="self-const.cpp" />
+    <ClCompile Include="self-const_ricatti.cpp" />
     <ClCompile Include="stdafx.cpp" />
   </ItemGroup>
   <ItemGroup>

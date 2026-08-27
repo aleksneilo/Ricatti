@@ -11,8 +11,8 @@ int Layer(int iN)
 	if ((iN > N_S - 1) && (iN < N_S + N_F)) k = 1;
 	if ((iN > N_S + N_F - 1) && (iN < N_S + N_F + N_S1)) k = 2;
     if((iN>N_S+N_F+N_S1-1)&&(iN<N_S+N_F+N_S1+N_F1)) k=3;
-	if ((iN > N_S + N_F + N_S1 + N_F1 - 1) && (iN < N_S + N_F + N_S1 + N_F1 + N_S2)) k = 4;
-     if((iN>(N_S + N_F + N_S1 + N_F1 + N_S2-1))&&(iN<N)) k=5;//*/
+	if ((iN > N_S + N_F + N_S1 + N_F1 - 1) && (iN < N)) k = 4;// _S + N_F + N_S1 + N_F1 + N_S2)) k = 4;
+     //if((iN>(N_S + N_F + N_S1 + N_F1 + N_S2-1))&&(iN<N)) k=5;//*/
       /*if((iN>N_S+N_F+2*N_S1+N_F1-1)&&(iN<N_S+2*N_F+2*N_S1+N_F1)) k=5;
       if((iN>N_S+2*N_F+2*N_S1+N_F1-1)&&(iN<N_S+2*N_F+3*N_S1+N_F1)) k=6;
       if((iN>N_S+2*N_F+3*N_S1+N_F1-1)&&(iN<N_S+2*N_F+3*N_S1+2*N_F1)) k=7;//*/

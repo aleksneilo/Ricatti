@@ -1,0 +1,505 @@
+#include <algorithm>
+#include <cstring>
+#include "stdafx.h"
+#include <cstdlib>
+#include <iostream>
+#include <cmath>
+#include <fstream>
+#include <complex>
+#include "SFS.h"
+#include <thread>
+#include <string>
+#include <chrono>
+#include <vector>
+ #define pi 3.141592653589793
+ #define icom (complex<double>(0, 1.))
+
+ using namespace std;
+
+ class AndersonMixer
+ {
+ public:
+     AndersonMixer(int history_size, double beta)
+         : history_size_(history_size), beta_(beta)
+     {
+     }
+
+     // Возвращает true, если использовался Anderson.
+     // false означает обычный Picard.
+     bool update(
+         complex<double>* x,
+         const complex<double>* target,
+         int size)
+     {
+         vector<complex<double>> current_x(size);
+         vector<complex<double>> current_r(size);
+
+         for (int i = 0; i < size; ++i)
+         {
+             current_x[i] = x[i];
+             current_r[i] = target[i] - x[i];
+         }
+
+         x_history_.push_back(current_x);
+         r_history_.push_back(current_r);
+
+         if (static_cast<int>(x_history_.size()) > history_size_)
+         {
+             x_history_.erase(x_history_.begin());
+             r_history_.erase(r_history_.begin());
+         }
+
+         const int count =
+             static_cast<int>(x_history_.size());
+
+         // На первой итерации истории ещё нет.
+         if (count < 2)
+         {
+             picardStep(x, current_x, current_r);
+             return false;
+         }
+
+         /*
+          * Решаем задачу
+          *
+          *     min ||sum_j coefficient[j] r_j||,
+          *     sum_j coefficient[j] = 1.
+          *
+          * Матрица Грама:
+          *
+          *     H_ij = Re sum_x conj(r_i(x)) r_j(x).
+          */
+
+         vector<vector<double>> system(
+             count + 1,
+             vector<double>(count + 1, 0.0));
+
+         vector<double> right_side(count + 1, 0.0);
+         vector<double> solution;
+
+         double gram_scale = 0.0;
+
+         for (int row = 0; row < count; ++row)
+         {
+             for (int column = 0; column < count; ++column)
+             {
+                 double scalar_product = 0.0;
+
+                 for (int i = 0; i < size; ++i)
+                 {
+                     scalar_product += real(
+                         conj(r_history_[row][i])
+                         * r_history_[column][i]);
+                 }
+
+                 system[row][column] = scalar_product;
+             }
+
+             gram_scale = max(
+                 gram_scale,
+                 abs(system[row][row]));
+         }
+
+         if (gram_scale < 1.e-30)
+         {
+             picardStep(x, current_x, current_r);
+             return false;
+         }
+
+         // Нормируем матрицу, чтобы малая невязка
+         // не делала систему плохо обусловленной.
+         for (int row = 0; row < count; ++row)
+         {
+             for (int column = 0; column < count; ++column)
+                 system[row][column] /= gram_scale;
+
+             // Небольшая регуляризация.
+             system[row][row] += 1.e-10;
+
+             // Условие sum coefficient = 1.
+             system[row][count] = 1.0;
+             system[count][row] = 1.0;
+         }
+
+         right_side[count] = 1.0;
+
+         if (!solveSmallSystem(system, right_side, solution))
+         {
+             restartWithLastPoint();
+             picardStep(x, current_x, current_r);
+             return false;
+         }
+
+         double coefficient_sum_abs = 0.0;
+         for (int j = 0; j < count; ++j)
+             coefficient_sum_abs += abs(solution[j]);
+
+         // Большие коэффициенты означают плохо
+         // обусловленную историю.
+         if (!isfinite(coefficient_sum_abs) ||
+             coefficient_sum_abs > 20.0)
+         {
+             restartWithLastPoint();
+             picardStep(x, current_x, current_r);
+             return false;
+         }
+
+         vector<complex<double>> next_x(
+             size, complex<double>(0.0, 0.0));
+
+         for (int j = 0; j < count; ++j)
+         {
+             const double coefficient = solution[j];
+
+             for (int i = 0; i < size; ++i)
+             {
+                 next_x[i] += coefficient
+                     * (x_history_[j][i]
+                         + beta_ * r_history_[j][i]);
+             }
+         }
+
+         for (int i = 0; i < size; ++i)
+         {
+             if (!isfinite(real(next_x[i])) ||
+                 !isfinite(imag(next_x[i])))
+             {
+                 restartWithLastPoint();
+                 picardStep(x, current_x, current_r);
+                 return false;
+             }
+         }
+
+         for (int i = 0; i < size; ++i)
+             x[i] = next_x[i];
+
+         return true;
+     }
+
+ private:
+     int history_size_;
+     double beta_;
+
+     vector<vector<complex<double>>> x_history_;
+     vector<vector<complex<double>>> r_history_;
+
+     void picardStep(
+         complex<double>* x,
+         const vector<complex<double>>& current_x,
+         const vector<complex<double>>& current_r)
+     {
+         for (int i = 0;
+             i < static_cast<int>(current_x.size());
+             ++i)
+         {
+             x[i] = current_x[i] + beta_ * current_r[i];
+         }
+     }
+
+     void restartWithLastPoint()
+     {
+         if (x_history_.empty())
+             return;
+
+         vector<complex<double>> last_x =
+             x_history_.back();
+
+         vector<complex<double>> last_r =
+             r_history_.back();
+
+         x_history_.clear();
+         r_history_.clear();
+
+         x_history_.push_back(last_x);
+         r_history_.push_back(last_r);
+     }
+
+     static bool solveSmallSystem(
+         vector<vector<double>> matrix,
+         vector<double> right_side,
+         vector<double>& solution)
+     {
+         const int size =
+             static_cast<int>(right_side.size());
+
+         for (int column = 0; column < size; ++column)
+         {
+             int pivot = column;
+
+             for (int row = column + 1;
+                 row < size; ++row)
+             {
+                 if (abs(matrix[row][column])
+                 > abs(matrix[pivot][column]))
+                 {
+                     pivot = row;
+                 }
+             }
+
+             if (abs(matrix[pivot][column]) < 1.e-14)
+                 return false;
+
+             swap(matrix[column], matrix[pivot]);
+             swap(right_side[column], right_side[pivot]);
+
+             const double diagonal =
+                 matrix[column][column];
+
+             for (int j = column; j < size; ++j)
+                 matrix[column][j] /= diagonal;
+
+             right_side[column] /= diagonal;
+
+             for (int row = 0; row < size; ++row)
+             {
+                 if (row == column)
+                     continue;
+
+                 const double factor =
+                     matrix[row][column];
+
+                 for (int j = column; j < size; ++j)
+                 {
+                     matrix[row][j] -=
+                         factor * matrix[column][j];
+                 }
+
+                 right_side[row] -=
+                     factor * right_side[column];
+             }
+         }
+
+         solution = right_side;
+         return true;
+     }
+ };
+
+//////// SelfCons - function to calculate pair potential ////////////
+
+//   INPUT Requires Global variables: Scales and Del0 for initial pair potential
+//   OUTPUT *G - pointer to array with Normal Green Function G
+//   OUTPUT *Del - pointer to array with Pair Potential Delta
+
+
+///////////////////////////////////////parallel programming
+void SelfConsParal(complex<double> *G, complex<double> *Del, int Initial, double* q, double I)
+{
+     complex<double> Delbuf,S2, *SS;
+     int *wth, Ns=0,//N_S+N_F+N_S1+N_F1+N_S2-2,
+     NS1=0;//N_S+N_F+N_S1/2;
+
+     SS=new complex<double> [N]; 			//sum of S1 in each x
+     int amount_of_threads=8;
+     wth=new int [amount_of_threads];
+        for (int i=0; i<amount_of_threads-1; i++)
+            wth[i]=int((0.3*i/7. + 0.69*i/7.*i/7.)*w_obrez);
+        wth[1]=1; wth[amount_of_threads-1]=w_obrez;
+        for (int i=0; i<amount_of_threads; i++) cout<<wth[i]<<endl;
+
+     complex<double>** S1 = new complex<double> *[w_obrez];
+     for (int i = 0; i < w_obrez; i++)
+	   S1[i] = new complex<double>[N];
+
+     const int anderson_history = 5;
+     const double anderson_beta = 1.6;
+
+     AndersonMixer anderson(
+         anderson_history,
+         anderson_beta);
+
+     vector<complex<double>> Del_target(N);
+     vector<complex<double>> residual(N);
+
+     //int imax; 
+     int w0 = 0, w1 = 1;//, w2=2, w3=3, w4=5, w5=7, w6=9, w7=12, w8=15, w9=18, w10=22, w11=26, w12=30, w13=35, w14=39, w15=44, w16=49, w17=w_obrez;//54,w18=w_obrez;//for T=0.5
+	double dDelmax=1, w;
+     // Set Initial Delta And G values
+	//if (Initial == 0)
+    	for (int i = 0; i<N; i++)
+        {
+			Del[i]= get_type(i)*Del0;
+            if ((i > N_S)) Del[i] = -0.;// *Hi[1] / abs(Hi[1]) * get_type(i) * Del0;//*exp(icom*Xi2*pi/2.);//*Hi[1]/abs(Hi[1])*Del0;//*exp(icom*Xi2);;//*exp(icom*0.01*pi/2.);+N_F+N_S1+N_F1
+            //if (i > (N - N_N - 1)) Del[i] = -get_type(i) * Del0;// *exp(icom * Xi2 * pi);
+        }//*/
+	
+    //for (int i=0; i<N; i++) cout<<fixed<<i<<"  "<<Del[i]<<"  "<<get_type(i)<<"  "<<get_ksi(i)<<"  "<<get_wm(i,1)<<"  "<<Roi[Layer(i)]<<"  "<<Rbi[Layer(i)]<<"  "<<Layer(i)<<endl;
+    // Start self-consistent loop
+   	iter=0;
+
+while ((dDelmax > epsDel)&& (iter < 2000))//((dDelmax<0.1)||((iter<70)))&&(iter<3000))
+{
+    // Find delta from S1 and S2 and check mismatch with previous step
+        //epsG=pow(10.,-6-3*iter/50.); if(iter>50)
+        //epsG=1e-11;
+     	for (int iw=0; iw<w_obrez; iw++) for (int j=0; j<N; j++)   S1[iw][j]=0.+0.*icom;
+		for(int i=0;i<N;i++) SS[i]=0.+0.*icom;
+		S2=log(T)/pi/T;
+        for(int iw=0; iw<w_obrez; iw++)
+		{	w=pi*T*(2.*iw+1.); //cual of S2
+			S2+=2./w;
+	  	}
+
+        
+      
+        std::vector<std::thread> threads(w_obrez);//amount_of_threads);
+        for (int i = 0; i < w_obrez; i++)//amount_of_threads - 1; i++)
+        {   //w0=wth[i];w1=wth[i+1];
+            threads[i] = std::thread(Scalc, std::ref(Del), std::ref(S1), i, i + 1, std::ref(q), std::ref(I));
+        }
+
+        for (int i = 0; i < w_obrez; i++)//amount_of_threads - 1; i++)
+            threads[i].join();//*/
+
+	    for(int i=0;i<N;i++) for(int iw=0; iw<w_obrez; iw++)   SS[i]+=S1[iw][i];//
+
+        dDelmax = 0.0;
+
+        for (int i = 0; i < N; ++i)
+        {
+            Del_target[i] = SS[i] / S2;
+            residual[i] = Del_target[i] - Del[i];
+
+            dDelmax = max(
+                dDelmax,
+                abs(residual[i]));
+        }
+
+        bool used_anderson = false;
+
+        if (dDelmax > epsDel)
+        {
+            used_anderson = anderson.update(
+                Del,
+                Del_target.data(),
+                N);
+        }
+
+        /*/piccard 
+        dDelmax = 0; int imax;
+        for (int i = 0; i < N; i++)
+        {
+            const double mixing = 1.7;
+
+            complex<double> Del_target = SS[i] / S2;
+            complex<double> residual = Del_target - Del[i];
+
+            dDelmax = max(dDelmax, abs(residual));
+            Del[i] += mixing * residual;
+        }//*/
+
+        
+        /*/ my working
+        dDelmax = 0; int imax;
+	        for (int i=0; i<N; i++)
+	        {
+	            Delbuf= Del[i];
+	            Del[i]= (SS[i]/S2+Delbuf*(alpha-1.))/alpha;
+                if (dDelmax< abs(Del[i]-Delbuf))
+	            {   dDelmax = abs(Del[i]-Delbuf);
+	                imax=i;
+	            }
+	        }//*/
+
+            cout << iter << " " << T << "  " << dDelmax << "  " << real(Del[0]) << "  " << real(Del[N  -1]) << endl;// +N_F + N_S1 + N_F1 + N_S2 / 2]) << "  " << real(Del[N - N_N - 1]) << endl;
+	        iter++;   // try it until it converges
+	        //for(int i=0;i<N;i++)    cout<<i<<"  "<<Del[i]<<endl;
+	        //auto end = std::chrono::steady_clock::now();
+            //auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin);
+            //cout <<"t("<<iter<<")=" << elapsed_ms.count() << endl;
+    }
+
+delete [] SS;
+for (int i = 0; i < w_obrez; i++)
+    delete[] S1[i];
+delete[] S1;
+
+}
+
+
+void Scalc(complex<double>* Del, complex<double>** S1, int w_in, int w_fin, double* q, double I)  //working in each thread
+{
+	int iterG=0, w_count=w_fin-w_in;
+    double ww, dGmax;
+    complex<double> *G,*G1, *Fi, *Fi_old, *Fi1, *Fi1_old, Gbuf,wm;
+    G=new complex<double>[N];
+    G1 = new complex<double>[N];
+    Fi=new complex<double>[N];
+    Fi_old=new complex<double>[N];
+    Fi1=new complex<double>[N];
+    Fi1_old=new complex<double>[N];
+
+	for(int iw=w_in; iw<w_fin; iw++)
+    {
+        for (int i=0; i<N; i++)	    G[i]=1.+0.1*icom;
+		//cout<<"iw="<<iw<<"  ID="<<this_thread::get_id()<<endl;
+        ww=pi*T*(2.*iw+1.);
+        dGmax=1.;
+        iterG = 0; ;// int kk = 0; double dDmax_last = 0;
+			 // Iterative loop over GG. Solve Nonlinear Usadel equation here
+            while ((dGmax > epsG)&&(iterG<1000))//&&(kk==0))
+            {   // Calculation of Anomalous Green functions Fi(w), Fi(-w)
+                //for (int i = 0; i < N; i++) G1[i] = -conj(G[i]);
+                //for (int i = 0; i < N; i++) Fi_old[i] = Fi[i];
+                Prog( Fi, G, Del, ww, q, I);
+                //for (int i = 0; i < N; i++) Fi[i] = 0.1*Fi[i] + 0.9*Fi_old[i];
+                for (int i = 0; i < N; i++) Fi1[i] = conj(Fi[i]);
+				//Prog( Fi1, G1, Del, -ww, q, I);
+                Gcalc(G, &dGmax, Fi, Fi1, Del, ww,q);
+                iterG++;
+                //if(iw==1) cout<<Fi1[N/2]<<endl;
+                //if(iw==0) cout<<"w="<<((ww/pi/T-1)/2.)<<"  "<<iterG<<"  "<< dGmax<<endl;
+			}
+            //if(iw==0)
+                //cout<<"w="<<((ww/pi/T-1)/2.)<<"  "<<iterG<<"  "<< real(Del[0])<<"  "<<dGmax<<endl;//"  arg="<<arg(G[N-1]*Fi[N-1]/get_wm(N-1,ww))/pi<<endl;
+            // search summ of self-cons eq. for each point of the grid
+            for (int i=0; i<N; i++)
+			{
+                //ww = pi * T * (2. * iw + 1.);// +2. * pi * get_ksi(i) * get_ksi(i) * q[i] * G[i] * q[i] / 2.;
+                wm = get_wm(i, ww) +2. * pi * get_ksi(i) * get_ksi(i) * G[i] * q[i] * q[i] / 2.;
+                S1[iw][i] += 2. * get_tc(i) * get_type(i) * real(Fi1[i] / sqrt(wm * wm + Fi1[i] * conj(Fi[i])));// G[i] * Fi[i] / wm);// +conj(G[i]) * Fi1[i] / ww);
+                //fout <<fixed<< (w/pi/T-1)/2 <<"\t"<< i <<"\t" << real(F[i].A[0]) << "\t" << imag(F[i].A[0]) << "\t" << real(G[i]) << "\t" << imag(G[i]) << "\t" <<real(Del[i])<<endl;// log10(abs(1.-G[i]*G[i]))<<  endl;
+                //if(iw==0) fout1 <<fixed<< (w/pi/T-1)/2 <<"\t"<< i <<"\t" << real(F[i].A[1]) << "\t" << imag(F[i].A[1]) <<"\t" << real(F[i].A[2]) << "\t" << imag(F[i].A[2]) <<"\t" << real(F[i].A[3]) << "\t" << imag(F[i].A[3]) <<endl;// log10(abs(1.-G[i]*G[i]))<<  endl;
+
+			}//*/
+        }
+    delete [] G;
+    delete [] G1;
+    delete [] Fi;
+    delete [] Fi1;
+    delete[] Fi_old;
+    delete[] Fi1_old;
+
+}
+//////// SelfConsZero - Pair Potentail in bulk material ////////////
+
+double SelfConsZero()
+{
+	double Del1, dDel, w;
+    double S1, S2;
+
+    Del1=1.76;  // Initial Delta is BCS value at T = 0
+    dDel=1;
+    while (abs(dDel)>epsDel)
+        {
+        S1=0;
+        S2=log(T)/pi/(T)/2.;
+        for(int iw=0; iw<w_obrez; iw++)
+            {
+            w=pi*T*(2.*iw+1.);
+            S1 = S1 + Del1/sqrt(w*w+Del1*Del1);   // Use known Green Functions Fi in bulk superconductor
+            S2 +=1./w;
+            }
+
+        dDel=Del1 - S1/S2;
+        Del1= Del1 - dDel;
+        }
+    return Del1;
+}
+
+	//				for(int j=0;j<N;j++)
+	//				{
+	//					cout<<"Fi_old["<<j<<"]="<<Fi_old[j]<<" "<<"Fi["<<j<<"]="<<Fi[j]<<" "<<"Fi1["<<j<<"]="<<Fi1_old[j]<<" "<<"T="<<T<<'\n';
+	//					cout<<"iter="<<iter<<'\n';
+		//				cout<<"Fi["<<j<<"]="<<Fi[j]<<'\n';
+			//			cout<<"Fi1["<<j<<"]="<<Fi1_old[j]<<" ";
+			//		}
