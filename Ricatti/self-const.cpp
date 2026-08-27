@@ -11,6 +11,7 @@
 #include <string>
 #include <chrono>
 #include <vector>
+#include <atomic>
  #define pi 3.141592653589793
  #define icom (complex<double>(0, 1.))
 
@@ -284,6 +285,162 @@
      double* q,
      double I);
 
+
+ vector<int> BuildSparseMatsubaraGrid(
+     int frequency_count,
+     int dense_count,
+     int points_per_octave)
+ {
+     vector<int> grid;
+
+     if (frequency_count <= 0)
+     {
+         return grid;
+     }
+
+     dense_count = std::max(1, dense_count);
+     dense_count = std::min(
+         dense_count,
+         frequency_count
+     );
+
+     points_per_octave =
+         std::max(1, points_per_octave);
+
+     // Низкие частоты считаем полностью
+     for (int iw = 0; iw < dense_count; ++iw)
+     {
+         grid.push_back(iw);
+     }
+
+     if (dense_count == frequency_count)
+     {
+         return grid;
+     }
+
+     /*
+     Частоты:
+
+         omega_iw = pi*T*(2*iw + 1).
+
+     На высоких частотах строим сетку,
+     равномерную по log(omega).
+     */
+     const double frequency_ratio =
+         pow(
+             2.0,
+             1.0 /
+             static_cast<double>(points_per_octave)
+         );
+
+     int current_iw = dense_count - 1;
+
+     while (current_iw < frequency_count - 1)
+     {
+         const double current_frequency_index =
+             2.0 * current_iw + 1.0;
+
+         const double target_frequency_index =
+             frequency_ratio
+             * current_frequency_index;
+
+         int next_iw =
+             static_cast<int>(
+                 ceil(
+                     0.5
+                     * (target_frequency_index - 1.0)
+                 )
+                 );
+
+         next_iw = std::max(
+             next_iw,
+             current_iw + 1
+         );
+
+         next_iw = std::min(
+             next_iw,
+             frequency_count - 1
+         );
+
+         grid.push_back(next_iw);
+         current_iw = next_iw;
+     }
+
+     return grid;
+ }
+
+ void InterpolateSparseMatsubaraS1(
+     complex<double>** S1,
+     const vector<int>& sparse_iw)
+ {
+     if (sparse_iw.size() < 2)
+     {
+         return;
+     }
+
+     for (size_t k = 0;
+         k + 1 < sparse_iw.size();
+         ++k)
+     {
+         const int iw_left = sparse_iw[k];
+         const int iw_right = sparse_iw[k + 1];
+
+         // Между точками нет пропущенных частот
+         if (iw_right <= iw_left + 1)
+         {
+             continue;
+         }
+
+         const double w_left =
+             pi * T * (2.0 * iw_left + 1.0);
+
+         const double w_right =
+             pi * T * (2.0 * iw_right + 1.0);
+
+         /*
+         После умножения на omega ведущая
+         поправка обычно пропорциональна 1/omega^2.
+         */
+         const double x_left =
+             1.0 / (w_left * w_left);
+
+         const double x_right =
+             1.0 / (w_right * w_right);
+
+         for (int iw = iw_left + 1;
+             iw < iw_right;
+             ++iw)
+         {
+             const double w =
+                 pi * T * (2.0 * iw + 1.0);
+
+             const double x =
+                 1.0 / (w * w);
+
+             const double interpolation_parameter =
+                 (x - x_left)
+                 / (x_right - x_left);
+
+             for (int i = 0; i < N; ++i)
+             {
+                 const complex<double> y_left =
+                     w_left * S1[iw_left][i];
+
+                 const complex<double> y_right =
+                     w_right * S1[iw_right][i];
+
+                 const complex<double> y =
+                     (1.0 - interpolation_parameter)
+                     * y_left
+                     + interpolation_parameter
+                     * y_right;
+
+                 S1[iw][i] = y / w;
+             }
+         }
+     }
+ }
+
 //////// SelfCons - function to calculate pair potential ////////////
 
 //   INPUT Requires Global variables: Scales and Del0 for initial pair potential
@@ -310,8 +467,8 @@ void SelfConsParal(complex<double> *G, complex<double> *Del, int Initial, double
      for (int i = 0; i < w_obrez; i++)
 	   S1[i] = new complex<double>[N];
 
-     const int anderson_history = 6;
-     const double anderson_beta = 1.6;
+     const int anderson_history = 6;   ///HERE MAY BE CHANGE
+     const double anderson_beta = 1.6; ///FOR FASTER CONVERGENCE YOU NEED TO INCREASE BETA
 
      AndersonMixer anderson(
          anderson_history,
@@ -334,6 +491,44 @@ void SelfConsParal(complex<double> *G, complex<double> *Del, int Initial, double
              G_cache[iw][i] = 1.0 + 0.1 * icom;
          }
      }
+
+     int worker_count =
+         static_cast<int>(
+             std::thread::hardware_concurrency()
+             );
+
+     if (worker_count <= 0)
+     {
+         worker_count = 1;
+     }
+
+     worker_count = std::min(
+         worker_count,
+         w_obrez
+     );
+
+     cout << "Matsubara worker threads: "
+         << worker_count
+         << endl;
+
+     const int sparse_dense_count = int(0.1*(w_obrez));     ///HERE MAY BE CHANGE
+     const int sparse_points_per_octave = 4;///FOR FASTER CONVERGENCE YOU NEED TO INCREASE BETA
+
+     const vector<int> sparse_iw =
+         BuildSparseMatsubaraGrid(
+             w_obrez,
+             sparse_dense_count,
+             sparse_points_per_octave
+         );
+
+     cout << "Full Matsubara grid: "
+         << w_obrez
+         << endl;
+
+     cout << "Sparse Matsubara grid: "
+         << sparse_iw.size()
+         << endl;
+
      //int imax; 
      int w0 = 0, w1 = 1;//, w2=2, w3=3, w4=5, w5=7, w6=9, w7=12, w8=15, w9=18, w10=22, w11=26, w12=30, w13=35, w14=39, w15=44, w16=49, w17=w_obrez;//54,w18=w_obrez;//for T=0.5
 	double dDelmax=1, w;
@@ -370,14 +565,81 @@ while ((dDelmax > epsDel)&& (iter < 2000))//((dDelmax<0.1)||((iter<70)))&&(iter<
 			S2+=2./w;
 	  	}/*/
 
-        std::vector<std::thread> threads(w_obrez);//amount_of_threads);
+        std::fill(
+            iterG_stat.begin(),
+            iterG_stat.end(),
+            0
+        );
+
+        /*
+        next_job — это не номер частоты,
+        а номер элемента массива sparse_iw.
+        */
+        std::atomic<int> next_job(0);
+
+        const int job_count =
+            static_cast<int>(sparse_iw.size());
+
+        const int active_worker_count =
+            std::min(worker_count, job_count);
+
+        vector<thread> workers;
+        workers.reserve(active_worker_count);
+
+        for (int worker = 0;
+            worker < active_worker_count;
+            ++worker)
+        {
+            workers.emplace_back(
+                [&]()
+                {
+                    while (true)
+                    {
+                        const int job =
+                            next_job.fetch_add(
+                                1,
+                                std::memory_order_relaxed
+                            );
+
+                        if (job >= job_count)
+                        {
+                            break;
+                        }
+
+                        /*
+                        Преобразуем номер задания
+                        в настоящий индекс частоты.
+                        */
+                        const int iw = sparse_iw[job];
+
+                        ScalcWarm(
+                            Del,
+                            S1,
+                            G_cache,
+                            iterG_stat,
+                            iw,
+                            iw + 1,
+                            q,
+                            I
+                        );
+                    }
+                }
+            );
+        }
+
+        for (thread& worker : workers)
+        {
+            worker.join();
+        }
+
+        /*/std::vector<std::thread> threads(w_obrez);//amount_of_threads);
         for (int i = 0; i < w_obrez; i++)//amount_of_threads - 1; i++)
         {   //w0=wth[i];w1=wth[i+1];
             threads[i] = std::thread(ScalcWarm, std::ref(Del), std::ref(S1), std::ref(G_cache), std::ref(iterG_stat), i, i + 1, std::ref(q), std::ref(I));
         }
 
         for (int i = 0; i < w_obrez; i++)//amount_of_threads - 1; i++)
-            threads[i].join();
+            threads[i].join();/*/
         
       
         /*/std::vector<std::thread> threads(w_obrez);//amount_of_threads);
@@ -392,7 +654,7 @@ while ((dDelmax > epsDel)&& (iter < 2000))//((dDelmax<0.1)||((iter<70)))&&(iter<
         bool scalc_ok = true;
         int failed_iw = -1;
 
-        for (int iw = 0; iw < w_obrez; ++iw)
+        for (int iw : sparse_iw)
         {
             if (iterG_stat[iw] < 0)
             {
@@ -404,15 +666,28 @@ while ((dDelmax > epsDel)&& (iter < 2000))//((dDelmax<0.1)||((iter<70)))&&(iter<
 
         if (!scalc_ok)
         {
-            cerr << "ScalcWarm failed for Matsubara frequency iw = "
+            cerr << "ScalcWarm failed for iw = "
                 << failed_iw
                 << endl;
 
-            // Не обновляем Delta по неполной мацубаровской сумме
             break;
         }
 
-	    for(int i=0;i<N;i++) for(int iw=0; iw<w_obrez; iw++)   SS[i]+=S1[iw][i];//
+        // Восстанавливаем пропущенные частоты
+        InterpolateSparseMatsubaraS1(
+            S1,
+            sparse_iw
+        );
+
+        // Суммируем полную восстановленную сетку
+        for (int i = 0; i < N; ++i)
+        {
+            for (int iw = 0; iw < w_obrez; ++iw)
+            {
+                SS[i] += S1[iw][i];
+            }
+        }
+
 
         dDelmax = 0.0;
 

@@ -78,7 +78,7 @@ int main()
     unsigned int n = std::thread::hardware_concurrency();
     std::cout << n << " concurrent threads are supported.\n";
 
-    T = 0.5;
+    T = 0.1;
     //   Iteration constants11
     epsG = 1e-9;  // accuracy of normal Green function G iteration loop
     epsDel = 5e-6; // accuracy of pair potential \Delta iteration loop
@@ -255,7 +255,7 @@ int main()
                         }
                         fout1 << fixed << I << "   " << L_N << "  " << Ksi_N << "  " << ro_N << "   " << real(DelP[0]) << "   " << real(DelP[N - 1]) << "   " << KIDP << "   " << qP[2] << endl;// "   " << IIP << "   " << II << "  " << abs(abs(II) - abs(IIP)) << "  " << culc << endl;// "  " << KIDP << "  " << KID << "  " << iter1 << "  " << iter << "  " << culc << endl;
 
-                        /*/double dGmax = 1; IIP = 0;
+                        double dGmax = 1; IIP = 0;
                         for (int iw = 0; iw < 1; iw++)
                         {
                             dGmax = 1;
@@ -268,7 +268,7 @@ int main()
                                 /*for (int i = 0; i<N; i++)
                                 {	G[i]= -conj(G[i]);
                                     Fi[i]=0.5*Fi[i]+0.5*Fi_old[i];
-                                }
+                                }/*/
                                 //for (int i=0; i<N; i++)	Fi1_old[i]= Fi1[i];
                                 //Prog( Fi1, G, DelP, -w);
                                 for (int i = 0; i < N; i++)
@@ -281,7 +281,7 @@ int main()
                                 //cout<<fixed<<dGmax<<"  "<<abs(Fi[0]/get_wm(0,w))<<"  "<<abs(G[0]*Fi[0]/get_wm(0,w))<<"  "<<abs(G[N/2]*Fi[N/2]/get_wm(N/2,w))<<"  "<<abs(G[N-1]*Fi[N-1]/get_wm(N-1,w))<<endl;
                             }
                             for (int n = 0; n < N; ++n)	fout2 << fixed << n << "  " << I << "  " << real(DelP[n]) << "  " << qP[n] << "  " <<abs(Fi[n]) << "  " << real(Fi[n]) << "  " << imag(Fi[n]) << endl;
-                        }/*/
+                        }//*/
 
                     }
 
