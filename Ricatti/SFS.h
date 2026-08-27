@@ -29,6 +29,7 @@ extern int  MODE;  // regime of boundary conditions: 0 - Free Boundary, 1 - Fixe
  double E_IS_calc(double *Is, complex<double> *G,complex<double> *Del, double* q, double I);
  void DOS(double E, complex<double> *G, complex<double> *G1, complex<double> *Fi, complex<double> *Del, double* q, double I);
   void SelfConsParal(complex<double> *G, complex<double> *Del, int Initial, double* q, double I);
+  //void ScalcWarm(complex<double>* Del, complex<double>** S1, vector<vector<complex<double>>>& G_cache, vector<int>& iterG_stat, int w_in, int w_fin, double* q, double I);
   void Scalc(complex<double>* Del, complex<double>** S1, int w_in, int w_fin, double* q, double I);// void Scalc(complex<double>* Del, complex<double>** S1, int& w_in, int& w_fin, double* q, double I);
  int Layer(int iN);
  complex<double> get_wm(int iN, complex<double> w);

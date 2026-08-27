@@ -274,6 +274,16 @@
      }
  };
 
+ void ScalcWarm(
+     complex<double>* Del,
+     complex<double>** S1,
+     vector<vector<complex<double>>>& G_cache,
+     vector<int>& iterG_stat,
+     int w_in,
+     int w_fin,
+     double* q,
+     double I);
+
 //////// SelfCons - function to calculate pair potential ////////////
 
 //   INPUT Requires Global variables: Scales and Del0 for initial pair potential
@@ -300,7 +310,7 @@ void SelfConsParal(complex<double> *G, complex<double> *Del, int Initial, double
      for (int i = 0; i < w_obrez; i++)
 	   S1[i] = new complex<double>[N];
 
-     const int anderson_history = 5;
+     const int anderson_history = 6;
      const double anderson_beta = 1.6;
 
      AndersonMixer anderson(
@@ -310,12 +320,26 @@ void SelfConsParal(complex<double> *G, complex<double> *Del, int Initial, double
      vector<complex<double>> Del_target(N);
      vector<complex<double>> residual(N);
 
+     vector<vector<complex<double>>> G_cache(
+         w_obrez,
+         vector<complex<double>>(N)
+     );
+
+     vector<int> iterG_stat(w_obrez, 0);
+
+     for (int iw = 0; iw < w_obrez; iw++)
+     {
+         for (int i = 0; i < N; i++)
+         {
+             G_cache[iw][i] = 1.0 + 0.1 * icom;
+         }
+     }
      //int imax; 
      int w0 = 0, w1 = 1;//, w2=2, w3=3, w4=5, w5=7, w6=9, w7=12, w8=15, w9=18, w10=22, w11=26, w12=30, w13=35, w14=39, w15=44, w16=49, w17=w_obrez;//54,w18=w_obrez;//for T=0.5
 	double dDelmax=1, w;
      // Set Initial Delta And G values
 	//if (Initial == 0)
-    	for (int i = 0; i<N; i++)
+    	/*/for (int i = 0; i<N; i++)
         {
 			Del[i]= get_type(i)*Del0;
             if ((i > N_S)) Del[i] = -0.;// *Hi[1] / abs(Hi[1]) * get_type(i) * Del0;//*exp(icom*Xi2*pi/2.);//*Hi[1]/abs(Hi[1])*Del0;//*exp(icom*Xi2);;//*exp(icom*0.01*pi/2.);+N_F+N_S1+N_F1
@@ -326,6 +350,13 @@ void SelfConsParal(complex<double> *G, complex<double> *Del, int Initial, double
     // Start self-consistent loop
    	iter=0;
 
+    S2 = log(T) / pi / T;
+    for (int iw = 0; iw < w_obrez; iw++)
+    {
+        w = pi * T * (2. * iw + 1.); //cual of S2
+        S2 += 2. / w;
+    }
+
 while ((dDelmax > epsDel)&& (iter < 2000))//((dDelmax<0.1)||((iter<70)))&&(iter<3000))
 {
     // Find delta from S1 and S2 and check mismatch with previous step
@@ -333,15 +364,23 @@ while ((dDelmax > epsDel)&& (iter < 2000))//((dDelmax<0.1)||((iter<70)))&&(iter<
         //epsG=1e-11;
      	for (int iw=0; iw<w_obrez; iw++) for (int j=0; j<N; j++)   S1[iw][j]=0.+0.*icom;
 		for(int i=0;i<N;i++) SS[i]=0.+0.*icom;
-		S2=log(T)/pi/T;
+		/*/S2 = log(T) / pi / T;
         for(int iw=0; iw<w_obrez; iw++)
 		{	w=pi*T*(2.*iw+1.); //cual of S2
 			S2+=2./w;
-	  	}
+	  	}/*/
 
+        std::vector<std::thread> threads(w_obrez);//amount_of_threads);
+        for (int i = 0; i < w_obrez; i++)//amount_of_threads - 1; i++)
+        {   //w0=wth[i];w1=wth[i+1];
+            threads[i] = std::thread(ScalcWarm, std::ref(Del), std::ref(S1), std::ref(G_cache), std::ref(iterG_stat), i, i + 1, std::ref(q), std::ref(I));
+        }
+
+        for (int i = 0; i < w_obrez; i++)//amount_of_threads - 1; i++)
+            threads[i].join();
         
       
-        std::vector<std::thread> threads(w_obrez);//amount_of_threads);
+        /*/std::vector<std::thread> threads(w_obrez);//amount_of_threads);
         for (int i = 0; i < w_obrez; i++)//amount_of_threads - 1; i++)
         {   //w0=wth[i];w1=wth[i+1];
             threads[i] = std::thread(Scalc, std::ref(Del), std::ref(S1), i, i + 1, std::ref(q), std::ref(I));
@@ -349,6 +388,29 @@ while ((dDelmax > epsDel)&& (iter < 2000))//((dDelmax<0.1)||((iter<70)))&&(iter<
 
         for (int i = 0; i < w_obrez; i++)//amount_of_threads - 1; i++)
             threads[i].join();//*/
+
+        bool scalc_ok = true;
+        int failed_iw = -1;
+
+        for (int iw = 0; iw < w_obrez; ++iw)
+        {
+            if (iterG_stat[iw] < 0)
+            {
+                scalc_ok = false;
+                failed_iw = iw;
+                break;
+            }
+        }
+
+        if (!scalc_ok)
+        {
+            cerr << "ScalcWarm failed for Matsubara frequency iw = "
+                << failed_iw
+                << endl;
+
+            // Не обновляем Delta по неполной мацубаровской сумме
+            break;
+        }
 
 	    for(int i=0;i<N;i++) for(int iw=0; iw<w_obrez; iw++)   SS[i]+=S1[iw][i];//
 
@@ -412,9 +474,180 @@ delete [] SS;
 for (int i = 0; i < w_obrez; i++)
     delete[] S1[i];
 delete[] S1;
+delete[] wth;
 
 }
 
+void ScalcWarm(
+    complex<double>* Del,
+    complex<double>** S1,
+    vector<vector<complex<double>>>& G_cache,
+    vector<int>& iterG_stat,
+    int w_in,
+    int w_fin,
+    double* q,
+    double I)
+{
+    const int max_iterG = 1000;
+
+    vector<complex<double>> Fi(N);
+    vector<complex<double>> Fi1(N);
+
+    // Проверка комплексного числа на NaN и Inf
+    auto is_finite_complex =
+        [](const complex<double>& z) -> bool
+        {
+            return std::isfinite(real(z))
+                && std::isfinite(imag(z));
+        };
+
+    for (int iw = w_in; iw < w_fin; ++iw)
+    {
+        const double ww =
+            pi * T * (2.0 * iw + 1.0);
+
+        // G для данной частоты хранится между
+        // внешними итерациями по Delta
+        complex<double>* G = G_cache[iw].data();
+
+        bool converged = false;
+        int total_iterG = 0;
+
+        /*
+        attempt == 0:
+            используем сохранённый G_cache[iw].
+
+        attempt == 1:
+            если warm start не удался,
+            сбрасываем G и повторяем расчёт.
+        */
+        for (int attempt = 0;
+            attempt < 2 && !converged;
+            ++attempt)
+        {
+            if (attempt == 1)
+            {
+                // Защитный сброс только этой частоты
+                for (int i = 0; i < N; ++i)
+                {
+                    G[i] = 1.0 + 0.1 * icom;
+                }
+            }
+
+            double dGmax = 1.0;
+            int iterG_local = 0;
+
+            while (dGmax > epsG &&
+                iterG_local < max_iterG)
+            {
+                // Решаем уравнение для Fi
+                Prog(
+                    Fi.data(),
+                    G,
+                    Del,
+                    ww,
+                    q,
+                    I
+                );
+
+                // В F-параметризации используется
+                // симметрия Fi1 = conjugate(Fi)
+                for (int i = 0; i < N; ++i)
+                {
+                    Fi1[i] = conj(Fi[i]);
+                }
+
+                // Обновляем нормальную функцию G
+                Gcalc(
+                    G,
+                    &dGmax,
+                    Fi.data(),
+                    Fi1.data(),
+                    Del,
+                    ww,
+                    q
+                );
+
+                ++iterG_local;
+
+                // Если dGmax стал NaN или Inf,
+                // немедленно прекращаем эту попытку
+                if (!std::isfinite(dGmax))
+                {
+                    break;
+                }
+            }
+
+            total_iterG += iterG_local;
+
+            bool finite_solution =
+                std::isfinite(dGmax);
+
+            // Дополнительная проверка массивов
+            for (int i = 0;
+                i < N && finite_solution;
+                ++i)
+            {
+                finite_solution =
+                    is_finite_complex(G[i]) &&
+                    is_finite_complex(Fi[i]) &&
+                    is_finite_complex(Fi1[i]);
+            }
+
+            converged =
+                finite_solution &&
+                dGmax <= epsG;
+        }
+
+        if (!converged)
+        {
+            /*
+            Обе попытки завершились неудачно.
+
+            Отрицательное значение сообщает
+            SelfConsParal об ошибке данной частоты.
+            */
+            iterG_stat[iw] = -1;
+
+            // Оставляем кеш в безопасном состоянии
+            for (int i = 0; i < N; ++i)
+            {
+                G[i] = 1.0 + 0.1 * icom;
+                S1[iw][i] = 0.0;
+            }
+
+            continue;
+        }
+
+        iterG_stat[iw] = total_iterG;
+
+        // Частота успешно посчитана:
+        // теперь можно вычислять вклад в Delta
+        for (int i = 0; i < N; ++i)
+        {
+            const complex<double> wm =
+                get_wm(i, ww)
+                + pi
+                * get_ksi(i)
+                * get_ksi(i)
+                * G[i]
+                * q[i]
+                * q[i];
+
+            S1[iw][i] =
+                2.0
+                * get_tc(i)
+                * get_type(i)
+                * real(
+                    Fi1[i]
+                    / sqrt(
+                        wm * wm
+                        + Fi1[i] * conj(Fi[i])
+                    )
+                );
+        }
+    }
+}
 
 void Scalc(complex<double>* Del, complex<double>** S1, int w_in, int w_fin, double* q, double I)  //working in each thread
 {
